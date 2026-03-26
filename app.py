@@ -73,15 +73,18 @@ def _apply_auto_enhance(bgr: np.ndarray) -> np.ndarray:
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    # Reduced CLAHE intensity for more natural enhancement
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
     l2 = clahe.apply(l)
     lab2 = cv2.merge((l2, a, b))
     out = cv2.cvtColor(lab2, cv2.COLOR_LAB2BGR)
 
-    out = cv2.fastNlMeansDenoisingColored(out, None, 3, 3, 7, 21)
+    # Lighter denoising to preserve detail
+    out = cv2.fastNlMeansDenoisingColored(out, None, 2, 2, 7, 21)
 
+    # Reduced sharpening for more natural look
     blur = cv2.GaussianBlur(out, (0, 0), sigmaX=1.0)
-    out = cv2.addWeighted(out, 1.25, blur, -0.25, 0)
+    out = cv2.addWeighted(out, 1.15, blur, -0.15, 0)
 
     return out
 
