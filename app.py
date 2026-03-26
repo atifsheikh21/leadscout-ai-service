@@ -1,10 +1,12 @@
 import os
+import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from PIL import Image, ImageOps
 
@@ -449,19 +451,67 @@ def health() -> Dict[str, str]:
 
 
 @app.post("/process")
-def process(req: ProcessRequest) -> Dict[str, Any]:
-    input_path = os.path.abspath(req.input_path)
-    output_path = os.path.abspath(req.output_path)
-
-    if not os.path.isfile(input_path):
-        raise HTTPException(status_code=400, detail=f"input_path does not exist: {input_path}")
-
+async def process(
+    image: UploadFile = File(...),
+    output_quality: int = Form(85),
+    output_format: str = Form("jpg"),
+    target: str = Form("original"),
+    upscale: str = Form("none"),
+    auto_rotate: bool = Form(True),
+    auto_enhance: bool = Form(True),
+    auto_straighten: bool = Form(False),
+    auto_center: bool = Form(False),
+    center_mode: str = Form("classic"),
+    padding_percent: float = Form(0.08),
+) -> Response:
     try:
-        info = process_image(input_path, output_path, req.settings or {})
-        return {
-            "output_path": output_path,
-            "width": info.width,
-            "height": info.height,
+        # Read uploaded file
+        contents = await image.read()
+        
+        # Create temporary files
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image.filename or ".jpg")[1]) as input_tmp:
+            input_tmp.write(contents)
+            input_path = input_tmp.name
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{output_format}") as output_tmp:
+            output_path = output_tmp.name
+        
+        # Build settings
+        settings = {
+            "output_quality": output_quality,
+            "output_format": output_format,
+            "target": target,
+            "upscale": upscale,
+            "auto_rotate": auto_rotate,
+            "auto_enhance": auto_enhance,
+            "auto_straighten": auto_straighten,
+            "auto_center": auto_center,
+            "center_mode": center_mode,
+            "padding_percent": padding_percent,
         }
+        
+        # Process image
+        info = process_image(input_path, output_path, settings)
+        
+        # Read processed image
+        with open(output_path, "rb") as f:
+            processed_data = f.read()
+        
+        # Cleanup temp files
+        try:
+            os.unlink(input_path)
+            os.unlink(output_path)
+        except:
+            pass
+        
+        # Return processed image
+        return Response(
+            content=processed_data,
+            media_type=f"image/{output_format}",
+            headers={
+                "X-Image-Width": str(info.width),
+                "X-Image-Height": str(info.height),
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
